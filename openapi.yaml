@@ -1,0 +1,1467 @@
+openapi: 3.0.3
+info:
+  title: MBS Bond Mini App API (Phase 1)
+  description: >
+    Đặc tả API cho Mini App Trái phiếu MBS tích hợp trong MB Bank (BeeRich).
+    Tổng hợp từ tài liệu "Phạm vi phát triển (Phase 1)" — 35 API — và mapping
+    với các màn hình webapp (mbs-miniapp). Các endpoint đánh dấu "(TBD)" trong
+    mô tả là path đề xuất tạm thời, cần MBS/MB core xác nhận trước khi triển khai.
+  version: "1.0.0"
+  contact:
+    name: MBS Digital / BA Team
+servers:
+  - url: https://api-mbs.example.com
+    description: Môi trường mẫu (thay bằng domain thật khi triển khai)
+tags:
+  - name: Customer
+    description: Thông tin & trạng thái khách hàng (API 1, 2, 28, 29)
+  - name: Onboarding - Open Account
+    description: Mở tài khoản chứng khoán (API 25)
+  - name: Onboarding - Link Account
+    description: Liên kết tài khoản ngân hàng MB với TKCK MBS (API 16, 26)
+  - name: Onboarding - TPRL
+    description: Đăng ký tài khoản Trái phiếu riêng lẻ (API 27)
+  - name: Assets
+    description: Tài sản đầu tư (API 3, 4)
+  - name: Transactions
+    description: Lịch sử giao dịch & hợp đồng (API 6, 30, 31)
+  - name: Bond Catalog
+    description: Bảng chào bán, bộ lọc, chi tiết sản phẩm, văn kiện (API 7-11)
+  - name: Trading - Buy
+    description: Đặt lệnh mua trái phiếu (API 12-15, 17, 22)
+  - name: Trading - Sell
+    description: Bán trước hạn trái phiếu (API 21, 23, 24)
+  - name: OTP & Auth
+    description: Xác thực OTP và token phiên (API 18, 19, 32)
+  - name: Funds Transfer
+    description: Chuyển tiền phục vụ giao dịch mua (API 20)
+  - name: Reference Data
+    description: Dữ liệu tham chiếu dùng chung (API 16 - TK thanh toán)
+
+security:
+  - bearerAuth: []
+
+paths:
+  # ===================== 1. CUSTOMER =====================
+  /v1/customer/info:
+    get:
+      operationId: getCustomerInfo
+      tags: [Customer]
+      summary: "API 1 - Lấy thông tin khách hàng"
+      description: >
+        Trả về Mã CIF MB, số CCCD, Segment (customer status).
+        Endpoint (TBD) — file gốc chưa cung cấp path cụ thể.
+        Dùng tại: Home.tsx, open-account/BondIntro.tsx, open-account/Consent.tsx, AccountInfo.tsx.
+      responses:
+        "200":
+          description: Thông tin khách hàng
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomerInfo"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /v1/customer/status:
+    get:
+      operationId: getCustomerStatus
+      tags: [Customer]
+      summary: "API 2 - Check thông tin KH (TKCK, liên kết, NĐTCN, TPRL)"
+      description: >
+        API lõi quyết định điều hướng luồng nghiệp vụ trên Mini App.
+        Endpoint (TBD) — cần đánh giá điều chỉnh API BeeRich hiện có hay làm mới.
+        Dùng tại: Home.tsx (gatekeeper), open-account/BondIntro.tsx, link-account/Intro.tsx,
+        tprl/Notice.tsx, ndtcn/Status.tsx, AccountInfo.tsx, trade/BuyBond.tsx.
+      responses:
+        "200":
+          description: Trạng thái tài khoản khách hàng
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomerStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /v1/bond/cust/info:
+    get:
+      operationId: checkCustomerBuyCondition
+      tags: [Customer]
+      summary: "API 28 - Check điều kiện KH mua TP (thông tin KH)"
+      description: >
+        Stored: MBS_GATE.BOND_PUBLIC.check_cust_buy_info.
+        Dùng tại: tprl/Notice.tsx, trade/BuyBond.tsx.
+      parameters:
+        - $ref: "#/components/parameters/SecuritiesAccountNo"
+      responses:
+        "200":
+          description: Kết quả kiểm tra điều kiện khách hàng
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EligibilityResult"
+
+  /v1/bond/cust/trans:
+    get:
+      operationId: checkTransactionCondition
+      tags: [Customer]
+      summary: "API 29 - Check điều kiện giao dịch"
+      description: >
+        Stored: MBS_GATE.BOND_PUBLIC.check_trans_condition_wm.
+        Dùng tại: trade/BuyBond.tsx (trước bước xác nhận đặt lệnh).
+      parameters:
+        - $ref: "#/components/parameters/SecuritiesAccountNo"
+        - name: bondCode
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Kết quả kiểm tra điều kiện giao dịch
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EligibilityResult"
+
+  # ===================== ASSETS =====================
+  /v1/bond/assets:
+    get:
+      operationId: getBondAssets
+      tags: [Assets]
+      summary: "API 3 & 5 - Tài sản (và dữ liệu biểu đồ tài sản dùng chung)"
+      description: >
+        Stored: MBS_GATE.BOND_TRADING.get_bond_asset_new.
+        Dùng tại: Assets.tsx (tổng tài sản + biểu đồ tài sản).
+      parameters:
+        - $ref: "#/components/parameters/SecuritiesAccountNo"
+      responses:
+        "200":
+          description: Tổng quan tài sản trái phiếu
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssetSummary"
+
+  /v1/bond/asset/detail:
+    get:
+      operationId: getBondAssetDetail
+      tags: [Assets]
+      summary: "API 4 - Chi tiết tài sản theo mã trái phiếu"
+      description: >
+        Stored: MBS_GATE.BOND_TRADING.get_bond_asset_child_new.
+        Dùng tại: Assets.tsx (khi KH bấm xem chi tiết 1 mã trái phiếu - cần bổ sung màn hình).
+      parameters:
+        - $ref: "#/components/parameters/SecuritiesAccountNo"
+        - name: bondCode
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Chi tiết tài sản & danh sách hợp đồng theo mã trái phiếu
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssetDetail"
+
+  # ===================== TRANSACTIONS / DOCUMENTS =====================
+  /v1/bond/trans/history:
+    get:
+      operationId: getTransactionHistory
+      tags: [Transactions]
+      summary: "API 6 - Lịch sử giao dịch"
+      description: >
+        Stored: MBS_GATE.BOND_TRADING.BT_getListTransHistory. Đã có, dùng lại nguyên trạng.
+        Dùng tại: đề xuất bổ sung màn "Lịch sử giao dịch" trong AccountInfo.tsx.
+      parameters:
+        - $ref: "#/components/parameters/SecuritiesAccountNo"
+        - name: fromDate
+          in: query
+          schema: { type: string, format: date }
+        - name: toDate
+          in: query
+          schema: { type: string, format: date }
+      responses:
+        "200":
+          description: Danh sách lịch sử giao dịch
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TransactionHistoryItem"
+
+  /v1/minio/bond/appendix/sell:
+    get:
+      operationId: viewSellAppendixHistory
+      tags: [Transactions]
+      summary: "API 30 - Xem lại hợp đồng bán"
+      responses:
+        "200":
+          description: Danh sách phụ lục hợp đồng bán đã thực hiện
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AppendixHistoryItem"
+
+  /v1/minio/bond/appendix/history:
+    get:
+      operationId: viewBuyAppendixHistory
+      tags: [Transactions]
+      summary: "API 31 - Xem lại hợp đồng mua"
+      responses:
+        "200":
+          description: Danh sách phụ lục hợp đồng mua đã thực hiện
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AppendixHistoryItem"
+
+  # ===================== BOND CATALOG =====================
+  /v1/bond/offerings:
+    get:
+      operationId: getBondOfferings
+      tags: [Bond Catalog]
+      summary: "API 7 - Bảng chào bán trái phiếu"
+      description: >
+        Endpoint (TBD) — file gốc chưa cung cấp path cụ thể, cần MBS xác nhận.
+        Trái phiếu bán theo kho: nếu kho bán FIX/FLEXI thì hiển thị thẻ tương ứng.
+        Dùng tại: trang danh sách trái phiếu (chưa dựng trong webapp hiện tại).
+      parameters:
+        - name: bondCode
+          in: query
+          schema: { type: string }
+        - name: segment
+          in: query
+          schema: { type: string }
+        - name: interestRate
+          in: query
+          schema: { type: number }
+        - name: requireProfessionalInvestor
+          in: query
+          schema: { type: boolean }
+        - name: accountNo
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: Danh sách trái phiếu đang chào bán
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BondOffering"
+
+  /v1/bond/filters:
+    get:
+      operationId: getBondFilters
+      tags: [Bond Catalog]
+      summary: "API 8 - Trả các thông tin bộ lọc"
+      description: >
+        Stored: MBS_GATE.BOND_TRADING.get_list_bond_filters. Bổ sung thêm type bộ lọc đối tượng.
+      responses:
+        "200":
+          description: Danh sách bộ lọc kỳ hạn & đối tượng
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BondFilterOptions"
+
+  /v1/bond/info:
+    get:
+      operationId: getBondInfo
+      tags: [Bond Catalog]
+      summary: "API 9 - Chi tiết sản phẩm trái phiếu"
+      description: Stored MBS_GATE.BOND_TRADING.BT_getBondInforDetail.
+      parameters:
+        - name: bondCode
+          in: query
+          required: true
+          schema: { type: string }
+        - name: accountNo
+          in: query
+          schema: { type: string }
+        - name: segment
+          in: query
+          schema: { type: string }
+        - name: productType
+          in: query
+          schema: { type: string, enum: [GBOND-FIX, GBOND-FLEXI] }
+        - name: warehouse
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: Thông tin chi tiết sản phẩm trái phiếu
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BondDetail"
+
+  /v1/bond/minio/files:
+    get:
+      operationId: getBondDocumentList
+      tags: [Bond Catalog]
+      summary: "API 10 - Lấy list văn kiện trái phiếu"
+      parameters:
+        - name: bondCode
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Danh sách văn kiện
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BondDocument"
+
+  /v1/bond/minio/detail:
+    get:
+      operationId: getBondDocumentDetail
+      tags: [Bond Catalog]
+      summary: "API 11 - Chi tiết nội dung văn kiện trái phiếu"
+      parameters:
+        - name: fileId
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Nội dung chi tiết văn kiện
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BondDocument"
+
+  /v1/minio/bond/file/page:
+    get:
+      operationId: getBondDocumentPage
+      tags: [Bond Catalog]
+      summary: "API 11b - Chi tiết văn kiện (có phân trang)"
+      description: "Có API phân trang nhưng luồng cũ chưa dùng."
+      parameters:
+        - name: fileId
+          in: query
+          required: true
+          schema: { type: string }
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: pageSize
+          in: query
+          schema: { type: integer, default: 20 }
+      responses:
+        "200":
+          description: Nội dung văn kiện theo trang
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BondDocument"
+
+  # ===================== TRADING - BUY =====================
+  /v1/bond/detail:
+    get:
+      operationId: getBuyOrderInfo
+      tags: [Trading - Buy]
+      summary: "API 12 - Màn hình thông tin đặt lệnh mua"
+      description: >
+        Stored: MBS_GATE.BOND_TRADING.get_contractBUY_info_new. Bổ sung thêm input segment.
+        Dùng tại: trade/BuyBond.tsx.
+      parameters:
+        - name: bondCode
+          in: query
+          required: true
+          schema: { type: string }
+        - name: accountNo
+          in: query
+          required: true
+          schema: { type: string }
+        - name: segment
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: Thông tin đặt lệnh mua
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BuyOrderInfo"
+
+  /v1/bond/detail/data:
+    get:
+      operationId: getBuyCashFlowIllustration
+      tags: [Trading - Buy]
+      summary: "API 13 - Minh họa dòng tiền"
+      description: Stored MBS_GATE.BOND_TRADING.get_contractBUY_datachange_new.
+      parameters:
+        - name: bondCode
+          in: query
+          required: true
+          schema: { type: string }
+        - name: quantity
+          in: query
+          required: true
+          schema: { type: integer }
+        - name: term
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: Danh sách dòng tiền minh họa
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CashFlowItem"
+
+  /v1/bond/detail/data/flexi:
+    get:
+      operationId: getFlexiCashFlow
+      tags: [Trading - Buy]
+      summary: "API 14 - Minh họa chuyển nhượng Flexi"
+      description: >
+        Stored MBS_GATE.BOND_TRADING.get_FlexiCashFlow. Chưa đánh giá được (chưa có giao diện Flexi).
+      parameters:
+        - name: bondCode
+          in: query
+          required: true
+          schema: { type: string }
+        - name: quantity
+          in: query
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Danh sách dòng tiền chuyển nhượng Flexi
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FlexiCashFlowItem"
+
+  /product-sales-support/rm-management/v1.0/employee-info/list:
+    get:
+      operationId: checkReferralEmployee
+      tags: [Trading - Buy]
+      summary: "API 15 - Check mã người giới thiệu"
+      description: >
+        API do MB cung cấp lại. Quy tắc: gọi qua MB verify, nếu có thì show tên,
+        không có thì không cảnh báo vẫn cho pass.
+      parameters:
+        - name: employeeCode
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Thông tin nhân viên giới thiệu (nếu có)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReferralEmployee"
+
+  /v1/bond/appendix/contract:
+    get:
+      operationId: previewBuyAppendix
+      tags: [Trading - Buy]
+      summary: "API 17 - Xem trước phụ lục mua"
+      description: Stored MBS_GATE.BOND_TRADING.getTemplateInfo.
+      parameters:
+        - name: bondCode
+          in: query
+          required: true
+          schema: { type: string }
+        - name: quantity
+          in: query
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Nội dung/URL phụ lục hợp đồng mua
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppendixPreview"
+
+  /v1/bond/buying/register:
+    post:
+      operationId: registerBuyOrder
+      tags: [Trading - Buy]
+      summary: "API 22 - Đặt lệnh mua"
+      description: >
+        Stored MBS_GATE.BOND_TRADING.BT_updateContractBUY.
+        Sửa stored mua để verify OTP giống Digi.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BuyRegisterRequest"
+      responses:
+        "200":
+          description: Kết quả đặt lệnh mua
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BuyRegisterResponse"
+
+  # ===================== TRADING - SELL =====================
+  /v1/bond/appendix/contract/sell:
+    get:
+      operationId: previewSellAppendix
+      tags: [Trading - Sell]
+      summary: "API 21 - Xem trước phụ lục bán"
+      description: Stored MBS_GATE.BOND_PUBLIC.getTemplateInfo_CustSell.
+      parameters:
+        - name: contractCode
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Nội dung/URL phụ lục hợp đồng bán
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppendixPreview"
+
+  /v1/bond/selling/detail:
+    get:
+      operationId: getSellDetail
+      tags: [Trading - Sell]
+      summary: "API 23 - Thông tin màn hình bán trước hạn"
+      description: Stored MBS_GATE.BOND_TRADING.BT_getContractSELL_info.
+      parameters:
+        - name: contractCode
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Thông tin hợp đồng có thể bán trước hạn
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SellDetail"
+
+  /v1/bond/selling/register:
+    post:
+      operationId: registerSellOrder
+      tags: [Trading - Sell]
+      summary: "API 24 - Bán trước hạn"
+      description: Stored MBS_GATE.BOND_TRADING.BT_updateContractSELL.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SellRegisterRequest"
+      responses:
+        "200":
+          description: Kết quả bán trước hạn
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SellRegisterResponse"
+
+  # ===================== OTP & AUTH =====================
+  /v1/mbb/account/getSmsOTP:
+    post:
+      operationId: requestSmsOtp
+      tags: [OTP & Auth]
+      summary: "API 18 - Gửi OTP MBS (SMS OTP)"
+      description: >
+        Dùng chung cho các luồng: OTP mở TKCK, liên kết tài khoản, đăng ký TPRL,
+        đăng ký NĐTCN, đặt lệnh mua/bán.
+        Dùng tại: open-account/Otp.tsx, link-account/Otp.tsx, tprl/Otp.tsx, ndtcn/Otp.tsx.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OtpRequest"
+      responses:
+        "200":
+          description: Yêu cầu gửi OTP thành công
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OtpResponse"
+
+  /v1/bond/trading/confirm:
+    post:
+      operationId: confirmTradingOtp
+      tags: [OTP & Auth]
+      summary: "API 19 - Verify OTP giao dịch"
+      description: Stored MBS_GATE.BOND_TRADING.confirmTransaction.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfirmOtpRequest"
+      responses:
+        "200":
+          description: Kết quả xác thực OTP
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfirmOtpResponse"
+
+  /v1/auth/token:
+    post:
+      operationId: issueSessionToken
+      tags: [OTP & Auth]
+      summary: "API 32 - Cấp token phiên (SSO MB -> MBS)"
+      description: >
+        Endpoint (TBD) — dùng khi MB chuyển KH sang Mini App MBS ("MB gửi thông tin
+        truy cập, xác thực" / "MBS cấp phiên truy cập" xuất hiện ở mọi màn hình mockup).
+        Áp dụng cho toàn bộ Mini App, gọi ngay khi khởi tạo WebView.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TokenRequest"
+      responses:
+        "200":
+          description: Token phiên truy cập Mini App
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenResponse"
+
+  # ===================== FUNDS TRANSFER =====================
+  /mb-funds-transfer/funds-transfer/v1.0/make/v1.1:
+    post:
+      operationId: makeFundsTransferOtc
+      tags: [Funds Transfer]
+      summary: "API 20a - Tạo lệnh chuyển tiền (luồng OTC)"
+      description: >
+        Bước 3 trong luồng tiền OTC: sau khi OTP bán MBS thành công, gọi API này
+        để chuyển tiền; nếu API mua sau đó lỗi thì gọi API revert (20b).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FundsTransferRequest"
+      responses:
+        "200":
+          description: Kết quả tạo lệnh chuyển tiền, trả về mã FT
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FundsTransferResponse"
+
+  /mb-funds-transfer/funds-transfer/v1.2/revert:
+    post:
+      operationId: revertFundsTransferOtc
+      tags: [Funds Transfer]
+      summary: "API 20b - Revert tiền (luồng OTC khi mua thất bại)"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RevertTransferRequest"
+      responses:
+        "200":
+          description: Kết quả revert giao dịch chuyển tiền
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FundsTransferResponse"
+
+  /routing-transfer/v1.0/routing/make:
+    post:
+      operationId: makeFundsTransferTprl
+      tags: [Funds Transfer]
+      summary: "API 20c - Tạo lệnh chuyển tiền (luồng TPRL)"
+      description: >
+        Luồng TPRL: sau khi có mã FT, hệ thống chờ MBS bắn Kafka báo nổi tiền đúng mã FT
+        rồi mới gọi API mua (22). Nếu API mua lỗi, tiền trên TKCK khách hàng KHÔNG revert.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FundsTransferRequest"
+      responses:
+        "200":
+          description: Kết quả tạo lệnh chuyển tiền TPRL
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FundsTransferResponse"
+
+  # ===================== ONBOARDING - OPEN ACCOUNT =====================
+  /mbs-wm/open24/updateCusInfoCollect:
+    post:
+      operationId: collectOpenAccountInfo
+      tags: [Onboarding - Open Account]
+      summary: "API 25a - Thu thập thông tin mở TKCK"
+      description: >
+        Gửi thông tin CCCD (OCR), ảnh mặt trước/sau, ảnh khuôn mặt và mật khẩu để tạo hồ sơ mở TKCK.
+        Dùng tại: open-account/ConfirmInfo.tsx, FaceCapture.tsx, CreatePassword.tsx, RegisterService.tsx.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OpenAccountCollectRequest"
+      responses:
+        "200":
+          description: Hồ sơ được tạo, chờ xác thực OTP
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpenAccountCollectResponse"
+
+  /mbs-wm/mbb/account/getSmsOTP:
+    post:
+      operationId: requestSmsOtpOpenAccount
+      tags: [Onboarding - Open Account]
+      summary: "API 25b - Gửi OTP mở TKCK (kênh mbs-wm)"
+      description: Tương tự API 18, nhưng gọi qua kênh gateway mbs-wm khi mở TKCK.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OtpRequest"
+      responses:
+        "200":
+          description: Yêu cầu gửi OTP thành công
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OtpResponse"
+
+  /mbs-wm/open24/verifyOtp:
+    post:
+      operationId: verifyOpenAccountOtp
+      tags: [Onboarding - Open Account]
+      summary: "API 25c - Xác nhận mở tài khoản (verify OTP)"
+      description: Dùng tại open-account/Otp.tsx → open-account/Success.tsx.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfirmOtpRequest"
+      responses:
+        "200":
+          description: Kết quả mở TKCK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpenAccountResult"
+
+  # ===================== ONBOARDING - LINK ACCOUNT =====================
+  /t24-query/v1.0/routine:
+    get:
+      operationId: getPaymentAccounts
+      tags: [Reference Data]
+      summary: "API 16 - Danh sách tài khoản thanh toán"
+      description: >
+        T24 trả list, Digi/MBS lấy các tài khoản có giá trị > 0.
+        Dùng tại: link-account/Match.tsx (chọn TKNH nếu KH có nhiều TK).
+      parameters:
+        - name: cifCode
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Danh sách tài khoản thanh toán tại MB
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PaymentAccount"
+
+  /mbb/account/checkAccountToLink:
+    post:
+      operationId: checkAccountToLink
+      tags: [Onboarding - Link Account]
+      summary: "API 26a - Kiểm tra khớp thông tin để liên kết tài khoản"
+      description: >
+        So khớp Họ tên/Số CCCD/Số điện thoại giữa MB & MBS.
+        Dùng tại: link-account/Match.tsx, link-account/Mismatch.tsx.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LinkAccountCheckRequest"
+      responses:
+        "200":
+          description: Kết quả kiểm tra khớp thông tin
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LinkAccountCheckResponse"
+
+  /mbb/account/linkOtp:
+    post:
+      operationId: confirmLinkAccountOtp
+      tags: [Onboarding - Link Account]
+      summary: "API 26b - Xác nhận liên kết tài khoản (OTP)"
+      description: Dùng tại link-account/Otp.tsx → link-account/Success.tsx.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfirmOtpRequest"
+      responses:
+        "200":
+          description: Kết quả liên kết tài khoản
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LinkAccountResult"
+
+  # ===================== ONBOARDING - TPRL =====================
+  /v1/accounts/care/privateBond:
+    post:
+      operationId: registerPrivateBondAccount
+      tags: [Onboarding - TPRL]
+      summary: "API 27 - Đăng ký tài khoản Trái phiếu riêng lẻ (TPRL)"
+      description: >
+        Stored BACK_EXEC.TRADING_ACCOUNT.reg_trading_private_bond.
+        Hồ sơ đăng ký cần được gửi lên VSDC để phê duyệt.
+        Dùng tại: tprl/Register.tsx → tprl/Otp.tsx → tprl/Success.tsx.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PrivateBondRegisterRequest"
+      responses:
+        "200":
+          description: Kết quả đăng ký TK TPRL (trạng thái chờ VSDC phê duyệt)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PrivateBondRegisterResponse"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    SecuritiesAccountNo:
+      name: accountNo
+      in: query
+      required: true
+      schema:
+        type: string
+      description: Số tài khoản chứng khoán (TKCK) tại MBS, ví dụ 005Cabc123
+
+  responses:
+    Unauthorized:
+      description: Chưa xác thực hoặc token hết hạn
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+
+    CustomerInfo:
+      type: object
+      properties:
+        cifCode:
+          type: string
+          example: "CIF00012345"
+        idNumber:
+          type: string
+          example: "001090012345"
+        fullName:
+          type: string
+          example: "Nguyễn Văn A"
+        segment:
+          type: string
+          description: Phân khúc khách hàng (customer status)
+          example: "RETAIL"
+        phone:
+          type: string
+        email:
+          type: string
+
+    CustomerStatus:
+      type: object
+      properties:
+        hasSecuritiesAccount:
+          type: boolean
+        securitiesAccountNo:
+          type: string
+          nullable: true
+        isBankAccountLinked:
+          type: boolean
+        linkedBankAccount:
+          type: string
+          nullable: true
+        hasPrivateBondAccount:
+          type: boolean
+        ndtcnStatus:
+          type: string
+          enum: [NONE, PENDING, APPROVED, REJECTED]
+
+    EligibilityResult:
+      type: object
+      properties:
+        eligible:
+          type: boolean
+        reasonCode:
+          type: string
+          nullable: true
+        reasonMessage:
+          type: string
+          nullable: true
+
+    AssetSummary:
+      type: object
+      properties:
+        totalAssetValue:
+          type: number
+        growthValue:
+          type: number
+        growthPercent:
+          type: number
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/BondAssetItem"
+
+    BondAssetItem:
+      type: object
+      properties:
+        bondCode:
+          type: string
+        bondName:
+          type: string
+        assetValue:
+          type: number
+        quantity:
+          type: number
+        currentProfit:
+          type: number
+        profitPercent:
+          type: number
+
+    AssetDetail:
+      allOf:
+        - $ref: "#/components/schemas/BondAssetItem"
+        - type: object
+          properties:
+            contracts:
+              type: array
+              items:
+                $ref: "#/components/schemas/BondContract"
+
+    BondContract:
+      type: object
+      properties:
+        contractCode:
+          type: string
+        value:
+          type: number
+        unitPrice:
+          type: number
+        interestRate:
+          type: number
+        investmentPeriod:
+          type: string
+        profit:
+          type: number
+        startDate:
+          type: string
+          format: date
+        endDate:
+          type: string
+          format: date
+
+    TransactionHistoryItem:
+      type: object
+      properties:
+        transDate:
+          type: string
+          format: date-time
+        bondCode:
+          type: string
+        transType:
+          type: string
+          enum: [BUY, SELL]
+        quantity:
+          type: number
+        value:
+          type: number
+        status:
+          type: string
+
+    AppendixHistoryItem:
+      type: object
+      properties:
+        contractCode:
+          type: string
+        fileUrl:
+          type: string
+          format: uri
+        createdDate:
+          type: string
+          format: date-time
+
+    BondOffering:
+      type: object
+      properties:
+        bondCode:
+          type: string
+        bondName:
+          type: string
+        issuer:
+          type: string
+        partnerCounterparty:
+          type: string
+          description: Đối tác giao dịch (Kho)
+        maxInterestRate:
+          type: number
+        minTerm:
+          type: integer
+        maxTerm:
+          type: integer
+        termUnit:
+          type: string
+          enum: [DAY, WEEK, MONTH]
+        requireProfessionalInvestor:
+          type: boolean
+        minInvestmentValue:
+          type: number
+        productType:
+          type: string
+          enum: [GBOND-FIX, GBOND-FLEXI]
+        partnerLogoUrl:
+          type: string
+          format: uri
+
+    BondFilterOptions:
+      type: object
+      properties:
+        terms:
+          type: array
+          items:
+            type: string
+        objectTypes:
+          type: array
+          items:
+            type: string
+
+    BondDetail:
+      type: object
+      properties:
+        bondCode:
+          type: string
+        bondName:
+          type: string
+        issuer:
+          type: string
+        terms:
+          type: array
+          items:
+            $ref: "#/components/schemas/BondTermRate"
+
+    BondTermRate:
+      type: object
+      properties:
+        termValue:
+          type: integer
+        termUnit:
+          type: string
+          enum: [DAY, WEEK, MONTH]
+        flatInterestRate:
+          type: number
+        ladderRates:
+          type: array
+          items:
+            type: object
+            properties:
+              fromDay:
+                type: integer
+              toDay:
+                type: integer
+              rate:
+                type: number
+
+    BondDocument:
+      type: object
+      properties:
+        fileId:
+          type: string
+        fileName:
+          type: string
+        fileUrl:
+          type: string
+          format: uri
+        fileType:
+          type: string
+
+    BuyOrderInfo:
+      type: object
+      properties:
+        bondCode:
+          type: string
+        bondName:
+          type: string
+        segment:
+          type: string
+        unitPrice:
+          type: number
+        minQuantity:
+          type: integer
+        maxQuantity:
+          type: integer
+        term:
+          type: string
+        interestRate:
+          type: number
+
+    CashFlowItem:
+      type: object
+      properties:
+        periodDate:
+          type: string
+          format: date
+        principal:
+          type: number
+        interest:
+          type: number
+        total:
+          type: number
+
+    FlexiCashFlowItem:
+      type: object
+      properties:
+        transferDate:
+          type: string
+          format: date
+        principal:
+          type: number
+        interest:
+          type: number
+        total:
+          type: number
+
+    ReferralEmployee:
+      type: object
+      properties:
+        employeeCode:
+          type: string
+        employeeName:
+          type: string
+          nullable: true
+        verified:
+          type: boolean
+
+    PaymentAccount:
+      type: object
+      properties:
+        accountNo:
+          type: string
+        accountName:
+          type: string
+        balance:
+          type: number
+        currency:
+          type: string
+          example: VND
+
+    AppendixPreview:
+      type: object
+      properties:
+        fileUrl:
+          type: string
+          format: uri
+        htmlContent:
+          type: string
+          nullable: true
+
+    OtpRequest:
+      type: object
+      required: [phoneNumber, purpose]
+      properties:
+        phoneNumber:
+          type: string
+        transactionId:
+          type: string
+          nullable: true
+        purpose:
+          type: string
+          enum: [OPEN_ACCOUNT, LINK_ACCOUNT, REGISTER_TPRL, REGISTER_NDTCN, BUY_ORDER, SELL_ORDER]
+
+    OtpResponse:
+      type: object
+      properties:
+        requestId:
+          type: string
+        expireInSeconds:
+          type: integer
+          example: 60
+
+    ConfirmOtpRequest:
+      type: object
+      required: [requestId, otpCode]
+      properties:
+        requestId:
+          type: string
+        otpCode:
+          type: string
+          example: "123456"
+
+    ConfirmOtpResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+
+    FundsTransferRequest:
+      type: object
+      required: [transId, fromAccount, toAccount, amount]
+      properties:
+        transId:
+          type: string
+        fromAccount:
+          type: string
+        toAccount:
+          type: string
+        amount:
+          type: number
+        purpose:
+          type: string
+
+    FundsTransferResponse:
+      type: object
+      properties:
+        ftCode:
+          type: string
+        status:
+          type: string
+          enum: [SUCCESS, PENDING, FAILED]
+
+    RevertTransferRequest:
+      type: object
+      required: [ftCode]
+      properties:
+        ftCode:
+          type: string
+        reason:
+          type: string
+
+    BuyRegisterRequest:
+      type: object
+      required: [transId, bondCode, quantity, otpRequestId]
+      properties:
+        transId:
+          type: string
+        bondCode:
+          type: string
+        quantity:
+          type: integer
+        term:
+          type: string
+        ftCode:
+          type: string
+          nullable: true
+        otpRequestId:
+          type: string
+
+    BuyRegisterResponse:
+      type: object
+      properties:
+        contractCode:
+          type: string
+        status:
+          type: string
+          enum: [SUCCESS, PENDING, FAILED]
+
+    SellDetail:
+      type: object
+      properties:
+        contractCode:
+          type: string
+        bondCode:
+          type: string
+        sellableQuantity:
+          type: number
+        estimatedValue:
+          type: number
+
+    SellRegisterRequest:
+      type: object
+      required: [contractCode, quantity, otpRequestId]
+      properties:
+        contractCode:
+          type: string
+        quantity:
+          type: number
+        otpRequestId:
+          type: string
+
+    SellRegisterResponse:
+      type: object
+      properties:
+        contractCode:
+          type: string
+        status:
+          type: string
+          enum: [SUCCESS, PENDING, FAILED]
+
+    OpenAccountCollectRequest:
+      type: object
+      required: [cifCode, fullName, idNumber, phone]
+      properties:
+        cifCode:
+          type: string
+        fullName:
+          type: string
+        dob:
+          type: string
+          format: date
+        gender:
+          type: string
+        idNumber:
+          type: string
+        idIssueDate:
+          type: string
+          format: date
+        idIssuePlace:
+          type: string
+        address:
+          type: string
+        phone:
+          type: string
+        email:
+          type: string
+        idFrontImageBase64:
+          type: string
+          nullable: true
+        idBackImageBase64:
+          type: string
+          nullable: true
+        faceImageBase64:
+          type: string
+          nullable: true
+        password:
+          type: string
+          format: password
+
+    OpenAccountCollectResponse:
+      type: object
+      properties:
+        requestId:
+          type: string
+        status:
+          type: string
+          enum: [COLLECTED, PENDING_OTP]
+
+    OpenAccountResult:
+      type: object
+      properties:
+        securitiesAccountNo:
+          type: string
+        status:
+          type: string
+          enum: [SUCCESS, FAILED]
+
+    LinkAccountCheckRequest:
+      type: object
+      required: [cifCode, bankAccountNo]
+      properties:
+        cifCode:
+          type: string
+        bankAccountNo:
+          type: string
+
+    LinkAccountCheckResponse:
+      type: object
+      properties:
+        matched:
+          type: boolean
+        mismatchFields:
+          type: array
+          items:
+            type: string
+        requestId:
+          type: string
+          description: Dùng để xác nhận OTP ở bước tiếp theo
+
+    LinkAccountResult:
+      type: object
+      properties:
+        linkedBankAccount:
+          type: string
+        status:
+          type: string
+          enum: [SUCCESS, FAILED]
+
+    PrivateBondRegisterRequest:
+      type: object
+      required: [securitiesAccountNo]
+      properties:
+        securitiesAccountNo:
+          type: string
+        otpRequestId:
+          type: string
+
+    PrivateBondRegisterResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [PENDING_VSDC_APPROVAL, SUCCESS, FAILED]
+
+    TokenRequest:
+      type: object
+      required: [mbSsoTicket]
+      properties:
+        mbSsoTicket:
+          type: string
+          description: Vé phiên (SSO ticket) do MB App cấp khi chuyển KH sang Mini App MBS
+
+    TokenResponse:
+      type: object
+      properties:
+        accessToken:
+          type: string
+        tokenType:
+          type: string
+          example: Bearer
+        expiresIn:
+          type: integer
+          example: 3600
